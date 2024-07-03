@@ -21,22 +21,30 @@ logger = logging.getLogger(__name__)
 
 @component
 class JSONToDocument:
-    """
-
+    """ 
+    
+    Convert JSON files to Documents.
+    
     Converts JSON files to Documents by flattening the JSON and then
     mapping it to content field of the Document class.  The number of
     Document objects will be the same as the number of sources provided.  The
     assumption is that the JSON is encoded in utf-8
 
+
     :param sources:
+    
         List of HTML, file paths or ByteStream objects.
+        
     :param meta:
+    
         Optional metadata to attach to the Documents.
         This value can be either a list of dictionaries or a single dictionary.
         If it's a single dictionary, its content is added to the metadata of all produced Documents.
         If it's a list, the length of the list must match the number of sources, because the two lists will be zipped.
         If `sources` contains ByteStream objects, their `meta` will be added to the output Documents.
+        
     :returns:
+    
     A dictionary with the following keys:
     - `documents`: Created Documents
 
@@ -66,8 +74,10 @@ flattened JSON
 
     {'store_book_0_category': 'fiction', 'store_book_0_price': 8.95, 'store_book_0_title': 'Book A', 'store_book_1_category': 'non-fiction', 'store_book_1_price': 12.99, 'store_book_1_title': 'Book B'}
 
+
     """
 
+    
     def __init__(self: "JSONToDocument") -> None:
         """
         Create a JSONToDocument component.
