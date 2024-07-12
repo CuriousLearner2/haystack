@@ -28,7 +28,6 @@ class JSONToDocument:
     print(documents[0].content)
     # 'This is the content from the JSON item.'
     ```
-
     """
 
     def __init__(
@@ -161,19 +160,18 @@ class JSONToDocument:
         sample = data.first()
         if not isinstance(sample, dict):
             raise ValueError(
-                f"""
-                Expected the jq schema to result in a list of objects (dict), so
-                sample must be a dict but got `{type(sample)}` instead."""
+                f"Invalid Argument: Expected the `jq_schema={self._jq_schema}` to result in a list of "
+                f"dictionary objects, but got `{type(sample)}`. Please check the jq schema."
             )
 
         if not self._is_content_key_jq_parsable and sample.get(self._content_key) is None:
-            raise ValueError(
-                f"""Expected the jq schema to result in a list of objects (dict)
-                    with the key `{self._content_key}`"""
+            raise KeyError(
+                f"The jq schema was expected to result in a list of dictionary objects containing the "
+                f"key `{self._content_key}`, but it was not found."
             )
 
         if self._is_content_key_jq_parsable and self.jq.compile(self._content_key).input(sample).text() is None:
-            raise ValueError(
-                f"""Expected the jq schema to result in a list of objects (dict) with the key
-                `{self._content_key}` which should be parsable by jq."""
+            raise RuntimeError(
+                f"The jq schema was expected to result in a list of dictionary objects with the key "
+                f"`{self._content_key}`, which should be parsable by jq. However, parsing failed."
             )
