@@ -1,7 +1,4 @@
-# SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
-#
-# SPDX-License-Identifier: Apache-2.0
-
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -9,101 +6,79 @@ from haystack import Document, component, logging
 from haystack.components.converters.utils import get_bytestream_from_source, normalize_metadata
 from haystack.dataclasses import ByteStream
 from haystack.lazy_imports import LazyImport
-from haystack.utils.type_serialization import deserialize_type
-
-with LazyImport("Run 'pip install flatten_json' Github - https://github.com/amirziai/flatten ") as flatten_import:
-    from flatten_json import flatten
-
-import json
 
 logger = logging.getLogger(__name__)
+
+with LazyImport("Run 'pip install jq'") as jq_import:
+    import jq
 
 
 @component
 class JSONToDocument:
-    """ 
-    
-    Convert JSON files to Documents.
-    
-    Converts JSON files to Documents by flattening the JSON and then
-    mapping it to content field of the Document class.  The number of
-    Document objects will be the same as the number of sources provided.  The
-    assumption is that the JSON is encoded in utf-8
-
-
-    :param sources:
-    
-        List of HTML, file paths or ByteStream objects.
-        
-    :param meta:
-    
-        Optional metadata to attach to the Documents.
-        This value can be either a list of dictionaries or a single dictionary.
-        If it's a single dictionary, its content is added to the metadata of all produced Documents.
-        If it's a list, the length of the list must match the number of sources, because the two lists will be zipped.
-        If `sources` contains ByteStream objects, their `meta` will be added to the output Documents.
-        
-    :returns:
-    
-    A dictionary with the following keys:
-    - `documents`: Created Documents
+    """
+    Converts JSON files to Documents.
 
     Usage example:
     ```python
-    from haystack.components.converters.txt import JSONToDocument
+    from haystack.components.converters.json import JSONToDocument
 
-    converter = JSONToDocument()
-    results = converter.run(sources=["sample.json"])
+    converter = JSONToDocument(jq_schema=".data[]"))
+    results = converter.run(sources=["sample.json"], meta={"date_added": datetime.now().isoformat()})
     documents = results["documents"]
     print(documents[0].content)
-    # 'This is the JSON content from the JSON file.'
-
-
-    The flatten_json library is used to flatten JSON for the purposes of embedding
-    and semantic searching.  Example:
-    nested_json = {
-    "store": {
-        "book": [
-            {"category": "fiction", "price": 8.95, "title": "Book A"},
-            {"category": "non-fiction", "price": 12.99, "title": "Book B"}
-        ]
-    }
-}
-
-flattened JSON
-
-    {'store_book_0_category': 'fiction', 'store_book_0_price': 8.95, 'store_book_0_title': 'Book A', 'store_book_1_category': 'non-fiction', 'store_book_1_price': 12.99, 'store_book_1_title': 'Book B'}
-
+    # 'This is the content from the JSON item.'
+    ```
 
     """
 
-    
-    def __init__(self: "JSONToDocument") -> None:
+    def __init__(
+        self,
+        jq_schema: str,
+        content_key: Optional[str] = None,
+        is_content_key_jq_parsable: bool = False,
+        is_json_lines: bool = False,
+    ):
         """
-        Create a JSONToDocument component.
+        Create an JSONToDocument component.
+
+        :param jq_schema:
+            The jq schema to use to extract the data or text from the JSON.
+        :param content_key:
+            The key to use to extract the content from the JSON.
+            If is_content_key_jq_parsable is True, this has to be a jq-compatible schema.
+            If is_content_key_jq_parsable is False, this should be a simple string key.
+        :param is_content_key_jq_parsable:
+            A flag to determine if content_key is parsable by jq or not.
+            If True, content_key is treated as a jq schema and compiled accordingly.
+            If False or if content_key is None, content_key is used as a simple string. Default is False.
+        :param is_json_lines:
+            Boolean flag to indicate whether the input is in JSON Lines format.
+
         """
+        jq_import.check()
 
-        flatten_import.check()
-
-
-
+        self._jq_schema = jq.compile(jq_schema)
+        self._content_key = content_key
+        self._is_content_key_jq_parsable = is_content_key_jq_parsable
+        self._is_json_lines = is_json_lines
 
     @component.output_types(documents=List[Document])
     def run(
         self,
         sources: List[Union[str, Path, ByteStream]],
         meta: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None,
-    ):
+    ) -> Dict[str, List[Document]]:
         """
         Converts JSON files to Documents.
 
         :param sources:
-            List of HTML file paths or ByteStream objects.
+            List of file paths or ByteStream objects.
         :param meta:
             Optional metadata to attach to the Documents.
             This value can be either a list of dictionaries or a single dictionary.
             If it's a single dictionary, its content is added to the metadata of all produced Documents.
-            If it's a list, the length of the list must match the number of sources, because the two lists will be zipped.
+            If it's a list, the length of the list must match the number of sources, because the two lists will
+            be zipped.
             If `sources` contains ByteStream objects, their `meta` will be added to the output Documents.
 
         :returns:
@@ -111,39 +86,60 @@ flattened JSON
             - `documents`: Created Documents
         """
         documents = []
-
         meta_list = normalize_metadata(meta, sources_count=len(sources))
 
         for source, metadata in zip(sources, meta_list):
             try:
-                bytestream = get_bytestream_from_source(source)
-            except Exception as e:
-                logger.warning("Could not read {source}. Skipping it. Error: {error}", source=source, error=e)
+                bytestream: ByteStream = get_bytestream_from_source(source)
+            except Exception as byte_e:
+                logger.warning("Could not read '{source}'. Skipping it. Error: {error}", source=source, error=byte_e)
                 continue
             try:
-                # Convert the ByteStream data to a string
-                json_str = bytestream.data.decode("utf-8")
+                if self._is_json_lines:
+                    json_data = [json.loads(line) for line in bytestream.data.splitlines()]
+                else:
+                    json_data = json.loads(bytestream.data)
 
-                # Load the string into a dictionary
-                json_dict = json.loads(json_str)
-
-                # Flatten the dictionary
-                flattened_json_dict = flatten(json_dict)
-
-                # Convert to a string
-                flattened_string = json.dumps(flattened_json_dict)
-
-
-            except Exception as e:
+            except Exception as parse_e:
                 logger.warning(
-                    "Could not convert file {source}. Skipping it. Error message: {error}", source=source, error=e
+                    "Could not deserialize '{source}' as {file_format}. Skipping it. Error: {error}",
+                    source=source,
+                    file_format="JSON Lines" if self._is_json_lines else "JSON",
+                    error=parse_e,
+                )
+                continue
+            try:
+                jq_result = self._jq_schema.input(json_data)
+                for index, item in enumerate(jq_result):
+                    content = self._get_content(item)
+                    merged_meta = {**bytestream.meta, **metadata, "source": source, "seq_num": index}
+                    new_document = Document(content=content, meta=merged_meta)
+                    documents.append(new_document)
+
+            except Exception as convert_e:
+                logger.warning(
+                    "Could not convert '{source}' to Document. Skipping it. Error: {error}",
+                    source=source,
+                    error=convert_e,
                 )
                 continue
 
-
-
-            merged_metadata = {**bytestream.meta, **metadata}
-            document = Document(content=flattened_string, meta=merged_metadata)
-            documents.append(document)
-
         return {"documents": documents}
+
+    def _get_content(self, item: Dict) -> str:
+        """Extract and format content from a JSON item."""
+        if self._content_key is not None:
+            if self._is_content_key_jq_parsable:
+                compiled_content_key = jq.compile(self._content_key)
+                content = compiled_content_key.input(item).first()
+            else:
+                content = item[self._content_key]
+        else:
+            content = item
+
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, dict):
+            return json.dumps(content) if content else ""
+        else:
+            return str(content) if content is not None else ""

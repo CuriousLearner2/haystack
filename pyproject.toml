@@ -98,6 +98,7 @@ extra-dependencies = [
   "trafilatura",                      # HTMLToDocument
   "python-pptx",                      # PPTXToDocument
   "python-docx",                      # DocxToDocument
+  "jq",                                # JSONToDocument
 
   # OpenAPI
   "jsonref",  # OpenAPIServiceConnector, OpenAPIServiceToFunctions
