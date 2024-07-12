@@ -105,6 +105,10 @@ class JSONToDocument:
                 continue
             try:
                 jq_result = self._jq_schema.input(json_data)
+
+                if self._content_key is not None:
+                    self._validate_content_key(jq_result)
+
                 for result in jq_result:
                     content = self._get_content(result)
                     additional_meta = self._get_additional_metadata(result)
@@ -113,7 +117,7 @@ class JSONToDocument:
 
             except Exception as convert_e:
                 logger.warning(
-                    "Could not convert '{source}' to Document. Skipping it. Error: {error}",
+                    "Could not convert '{source}' to Document. Skipping it.\nError: {error}",
                     source=source,
                     error=convert_e,
                 )
@@ -150,3 +154,26 @@ class JSONToDocument:
             return {}
 
         return {field: record.get(field) for field in self._additional_meta}
+
+    def _validate_content_key(self, data: Any) -> None:
+        """Check if a content key is valid"""
+
+        sample = data.first()
+        if not isinstance(sample, dict):
+            raise ValueError(
+                f"""
+                Expected the jq schema to result in a list of objects (dict), so
+                sample must be a dict but got `{type(sample)}` instead."""
+            )
+
+        if not self._is_content_key_jq_parsable and sample.get(self._content_key) is None:
+            raise ValueError(
+                f"""Expected the jq schema to result in a list of objects (dict)
+                    with the key `{self._content_key}`"""
+            )
+
+        if self._is_content_key_jq_parsable and self.jq.compile(self._content_key).input(sample).text() is None:
+            raise ValueError(
+                f"""Expected the jq schema to result in a list of objects (dict) with the key
+                `{self._content_key}` which should be parsable by jq."""
+            )
