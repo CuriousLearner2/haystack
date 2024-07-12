@@ -1,80 +1,141 @@
 # SPDX-FileCopyrightText: 2022-present deepset GmbH <info@deepset.ai>
 #
 # SPDX-License-Identifier: Apache-2.0
-import logging
-from pathlib import Path
-import json
-import pytest
-
-from haystack.dataclasses import ByteStream
 from haystack.components.converters.json import JSONToDocument
+from unittest.mock import patch
+from haystack.dataclasses import ByteStream
 
 
 class TestJSONToDocument:
-    def test_run(self, test_files_path):
-        """
-        Test if the component runs correctly.
-        """
-        sample_json = {
-            "store": {
-                "book": [
-                    {"category": "fiction", "price": 8.95, "title": "Book A"},
-                    {"category": "non-fiction", "price": 12.99, "title": "Book B"}
-                ]
-            }
-        }
+    def test_init(self):
+        assert isinstance(JSONToDocument(jq_schema=".spam[]"), JSONToDocument)
 
-        # Save JSON content to a file
-        file_path = test_files_path / "json" / "sample.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w") as f:
-            json.dump(sample_json, f)
+    def test_default_initialization_parameters(self):
+        converter = JSONToDocument(jq_schema=".spam[]")
+        assert converter._content_key is None
+        assert converter._is_content_key_jq_parsable is False
+        assert converter._additional_meta is None
 
-        converter = JSONToDocument()
-        bytestream = ByteStream.from_file_path(file_path, meta={"file_path": str(file_path)})
-        output = converter.run(sources=[bytestream])
-        docs = output["documents"]
-        assert len(docs) == 1
-        assert "store_book_0_category" in docs[0].content
-        assert docs[0].meta["file_path"] == str(file_path)
+    def test_custom_initialization_parameters(self):
+        converter = JSONToDocument(
+            jq_schema=".spam[]",
+            content_key="eggs",
+            is_content_key_jq_parsable=True,
+            additional_meta_fields=["spam", "eggs", "ham"],
+        )
 
-    def test_run_error_handling(self, test_files_path, caplog):
-        """
-        Test if the component correctly handles errors.
-        """
-        paths = [test_files_path / "json" / "sample.json", "non_existing_file.json"]
-        converter = JSONToDocument()
-        with caplog.at_level(logging.WARNING):
-            output = converter.run(sources=paths)
-            assert "non_existing_file.json" in caplog.text
-        docs = output["documents"]
-        assert len(docs) == 1
-        assert docs[0].meta["file_path"] == str(paths[0])
+        assert converter._content_key == "eggs"
+        assert converter._is_content_key_jq_parsable is True
+        assert converter._additional_meta == ["spam", "eggs", "ham"]
 
-    def test_run_with_meta(self, test_files_path):
-        """
-        Test if the component correctly merges metadata.
-        """
-        sample_json = {
-            "store": {
-                "book": [
-                    {"category": "fiction", "price": 8.95, "title": "Book A"},
-                    {"category": "non-fiction", "price": 12.99, "title": "Book B"}
-                ]
-            }
-        }
+    def test_run_without_content_key(self, test_files_path):
+        converter = JSONToDocument(jq_schema=".prizes[].category")
+        file_path = test_files_path / "json" / "prize.json"
+        sources = [file_path]
+        results = converter.run(sources=sources)
+        documents = results["documents"]
 
-        # Save JSON content to a file
-        file_path = test_files_path / "json" / "sample.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w") as f:
-            json.dump(sample_json, f)
+        expected_content = ["physics", "chemistry", "peace"]
 
-        converter = JSONToDocument()
-        bytestream = ByteStream.from_file_path(file_path, meta={"author": "test_author"})
-        output = converter.run(sources=[bytestream], meta={"language": "en"})
-        document = output["documents"][0]
+        # assert one document created for each prize.category
+        assert len(documents) == 3
 
-        # Validate the metadata merge
-        assert document.meta["author"] == "test_author"
-        assert document.meta["language"] == "en"
+        # assert content extracted correctly
+        for doc, content in zip(documents, expected_content):
+            assert doc.content == content
+
+    def test_run_with_content_key(self, test_files_path):
+        converter = JSONToDocument(jq_schema=".prizes[].laureates[]?", content_key="motivation")
+        file_path = test_files_path / "json" / "prize.json"
+        sources = [file_path]
+        results = converter.run(sources=sources)
+        documents = results["documents"]
+
+        expected_content = [
+            "for groundbreaking experiments regarding entangled quantum states",
+            "for groundbreaking research in early childhood education",
+            "for the development of chemical tools used in biochemistry",
+            "for efforts to build peace and combat violence",
+        ]
+
+        # assert one document created for each prize.laureates.motivation
+        assert len(documents) == 4
+
+        # assert content extracted correctly
+        for doc, content in zip(documents, expected_content):
+            assert doc.content == content
+
+    def test_run_without_additional_meta_fields(self, test_files_path):
+        converter = JSONToDocument(jq_schema=".prizes[].laureates[]?", content_key="motivation")
+        file_path = test_files_path / "json" / "prize.json"
+        sources = [file_path]
+        results = converter.run(sources=sources)
+        documents = results["documents"]
+        expected_meta = [
+            {"file_path": str(file_path)},
+            {"file_path": str(file_path)},
+            {"file_path": str(file_path)},
+            {"file_path": str(file_path)},
+        ]
+
+        # assert metadata extracted correctly
+        for doc, meta in zip(documents, expected_meta):
+            assert doc.meta == meta
+
+    def test_run_with_additional_meta_fields(self, test_files_path):
+        converter = JSONToDocument(
+            jq_schema=".prizes[].laureates[]?",
+            content_key="motivation",
+            additional_meta_fields=["id", "firstname", "surname", "dateOfBirth"],
+        )
+        file_path = test_files_path / "json" / "prize.json"
+        sources = [file_path]
+        results = converter.run(sources=sources)
+        documents = results["documents"]
+        expected_meta = [
+            {
+                "file_path": str(file_path),
+                "id": 1,
+                "firstname": "John",
+                "surname": "Williams",
+                "dateOfBirth": "1975-03-15",
+            },
+            {
+                "file_path": str(file_path),
+                "id": 2,
+                "firstname": "Susan",
+                "surname": "Johnson",
+                "dateOfBirth": "1982-09-22",
+            },
+            {
+                "file_path": str(file_path),
+                "id": 3,
+                "firstname": "Jane",
+                "surname": "Smith",
+                "dateOfBirth": "1978-11-30",
+            },
+            {
+                "file_path": str(file_path),
+                "id": 4,
+                "firstname": "Maria",
+                "surname": "Garcia",
+                "dateOfBirth": "1970-06-08",
+            },
+        ]
+
+        # assert metadata extracted correctly
+        for doc, meta in zip(documents, expected_meta):
+            assert doc.meta == meta
+
+    def test_run_with_meta_parameter(self, test_files_path):
+        converter = JSONToDocument(jq_schema=".prizes[].laureates[]?", content_key="motivation")
+        file_path = test_files_path / "json" / "prize.json"
+        sources = [file_path]
+        meta = {"spam": "eggs"}
+        results = converter.run(sources=sources, meta=meta)
+        documents = results["documents"]
+        expected_meta = [{"file_path": str(file_path), **meta}] * 4
+
+        # assert metadata added correctly
+        for doc, meta in zip(documents, expected_meta):
+            assert doc.meta == meta
