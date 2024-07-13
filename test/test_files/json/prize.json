@@ -1,0 +1,72 @@
+{
+  "prizes": [
+    {
+      "year": 2023,
+      "category": "physics",
+      "laureates": [
+        {
+          "id": 1,
+          "firstname": "John",
+          "surname": "Williams",
+          "dateOfBirth": "1975-03-15",
+          "motivation": "for groundbreaking experiments regarding entangled quantum states",
+          "affiliations": [
+            {
+              "name": "University of Quantum",
+              "city": "Quantum City",
+              "country": "Quantumland"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "firstname": "Susan",
+          "surname": "Johnson",
+          "dateOfBirth": "1982-09-22",
+          "motivation": "for groundbreaking research in early childhood education",
+          "affiliations": [
+            {
+              "name": "Famous Research Lab",
+              "city": "Famous City",
+              "country": "FamousLand"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "year": 2023,
+      "category": "chemistry",
+      "laureates": [
+        {
+          "id": 3,
+          "firstname": "Jane",
+          "surname": "Smith",
+          "dateOfBirth": "1978-11-30",
+          "motivation": "for the development of chemical tools used in biochemistry",
+          "affiliations": [
+            {
+              "name": "Chemical Research Institute",
+              "city": "Chem City",
+              "country": "Chemland"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "year": 2023,
+      "category": "peace",
+      "laureates": [
+        {
+          "id": 4,
+          "firstname": "Maria",
+          "surname": "Garcia",
+          "dateOfBirth": "1970-06-08",
+          "motivation": "for efforts to build peace and combat violence",
+          "affiliations": []
+        }
+      ]
+    }
+  ]
+}

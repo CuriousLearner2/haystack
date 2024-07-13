@@ -30,38 +30,28 @@ class JSONToDocument:
     ```
     """
 
-    def __init__(
-        self,
-        jq_schema: str,
-        content_key: Optional[str] = None,
-        is_content_key_jq_parsable: bool = False,
-        additional_meta_fields: Optional[List[str]] = None,
-    ):
+    def __init__(self, jq_schema: str, content_key: Optional[str] = None, metadata_keys: Optional[List[str]] = None):
         """
         Create an JSONToDocument component.
 
         :param jq_schema:
             The jq schema to use to extract the data or text from the JSON.
+            This must be a jq-compatible schema.
+            Example: `".data[]"`
         :param content_key:
             The key to use to extract the content from the JSON.
-            If is_content_key_jq_parsable is True, this has to be a jq-compatible schema.
-            If is_content_key_jq_parsable is False, this should be a simple string key.
-        :param is_content_key_jq_parsable:
-            A flag to determine if content_key is parsable by jq or not.
-            If True, content_key is treated as a jq schema and compiled accordingly.
-            If False or if content_key is None, content_key is used as a simple string.
-            Default is False.
-        :param additional_meta_fields:
+            This must be a jq-compatible schema.
+            Example: `".text"`
+        :param metadata_keys:
             A list of additional fields to extract from the JSON and add to the metadata.
-            Takes precedence over the metadata specified in the `meta` parameter of the `run` method.
-            Default is None.
+            This must be a jq-compatible schema.
+            Example: `[".author", ".date"]`
         """
         jq_import.check()
 
-        self._jq_schema = jq.compile(jq_schema)
+        self._jq = jq.compile(jq_schema)
         self._content_key = content_key
-        self._is_content_key_jq_parsable = is_content_key_jq_parsable
-        self._additional_meta = additional_meta_fields
+        self._metadata_keys = metadata_keys
 
     @component.output_types(documents=List[Document])
     def run(
@@ -103,20 +93,17 @@ class JSONToDocument:
                 )
                 continue
             try:
-                jq_result = self._jq_schema.input(json_data)
-
-                if self._content_key is not None:
-                    self._validate_content_key(jq_result)
+                jq_result = self._jq.input_value(json_data)
 
                 for result in jq_result:
                     content = self._get_content(result)
-                    additional_meta = self._get_additional_metadata(result)
-                    merged_meta = {**bytestream.meta, **metadata, **additional_meta}
+                    meta = self._get_meta(result)
+                    merged_meta = {**bytestream.meta, **metadata, **meta}
                     documents.append(Document(content=content, meta=merged_meta))
 
             except Exception as convert_e:
                 logger.warning(
-                    "Could not convert '{source}' to Document. Skipping it.\nError: {error}",
+                    "Could not convert source `{source}` to Document. Skipping it.\nError: {error}",
                     source=source,
                     error=convert_e,
                 )
@@ -124,16 +111,13 @@ class JSONToDocument:
 
         return {"documents": documents}
 
-    def _get_content(self, item: Dict) -> str:
+    def _get_content(self, json_record: Dict) -> str:
         """Extract and format content from a JSON item."""
         if self._content_key is not None:
-            if self._is_content_key_jq_parsable:
-                compiled_content_key = jq.compile(self._content_key)
-                content = compiled_content_key.input(item).first()
-            else:
-                content = item[self._content_key]
+            compiled_content_key = jq.compile(self._content_key)
+            content = compiled_content_key.input_value(json_record).first()
         else:
-            content = item
+            content = json_record
 
         if isinstance(content, str):
             return content
@@ -142,36 +126,22 @@ class JSONToDocument:
         else:
             return str(content) if content is not None else ""
 
-    def _get_additional_metadata(self, record: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_meta(self, json_record: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Add additional metadata specified by additional_meta_fields argument.
+        Add additional metadata specified by metadata_keys argument.
 
-        :param record: Single data payload.
+        :param json_record: Single data payload.
         :return: A dictionary containing additional metadata fields.
         """
-        if not self._additional_meta:
+        if not self._metadata_keys:
             return {}
 
-        return {field: record.get(field) for field in self._additional_meta}
+        meta = {}
+        for field in self._metadata_keys:
+            try:
+                meta[field] = jq.compile(field).input_value(json_record).first()
+            except Exception as e:
+                # TODO: Fix this to log the error properly
+                logger.warning("Failed to extract metadata field `{field}`\nError: {e}", field=field, e=e)
 
-    def _validate_content_key(self, data: Any) -> None:
-        """Check if a content key is valid"""
-
-        sample = data.first()
-        if not isinstance(sample, dict):
-            raise ValueError(
-                f"Invalid Argument: Expected the `jq_schema={self._jq_schema}` to result in a list of "
-                f"dictionary objects, but got `{type(sample)}`. Please check the jq schema."
-            )
-
-        if not self._is_content_key_jq_parsable and sample.get(self._content_key) is None:
-            raise KeyError(
-                f"The jq schema was expected to result in a list of dictionary objects containing the "
-                f"key `{self._content_key}`, but it was not found."
-            )
-
-        if self._is_content_key_jq_parsable and self.jq.compile(self._content_key).input(sample).text() is None:
-            raise RuntimeError(
-                f"The jq schema was expected to result in a list of dictionary objects with the key "
-                f"`{self._content_key}`, which should be parsable by jq. However, parsing failed."
-            )
+        return meta
