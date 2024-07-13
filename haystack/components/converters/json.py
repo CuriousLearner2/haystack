@@ -16,6 +16,7 @@ with LazyImport("Run 'pip install flatten_json' Github - https://github.com/amir
 
 import json
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,7 +99,7 @@ flattened JSON
         Converts JSON files to Documents.
 
         :param sources:
-            List of HTML file paths or ByteStream objects.
+            List of Json strings, file paths as string or Path objects or ByteStream objects.
         :param meta:
             Optional metadata to attach to the Documents.
             This value can be either a list of dictionaries or a single dictionary.
@@ -110,39 +111,48 @@ flattened JSON
             A dictionary with the following keys:
             - `documents`: Created Documents
         """
+        
         documents = []
 
         meta_list = normalize_metadata(meta, sources_count=len(sources))
 
         for source, metadata in zip(sources, meta_list):
+            
+            
+            
             try:
-                bytestream = get_bytestream_from_source(source)
-            except Exception as e:
-                logger.warning("Could not read {source}. Skipping it. Error: {error}", source=source, error=e)
-                continue
+                # See if the source is a json string
+                json_dict = json.loads(source)
+                source_json_str = True
+                print ('json dict ', json_dict)
+            except (json.JSONDecodeError, TypeError):
+                source_json_str = False
+                try:
+            # See if it is a json file or Bytestream '
+                    bytestream = get_bytestream_from_source(source)
+                    # Convert the ByteStream data to a string                  
+                    json_str = bytestream.data.decode("utf-8")
+                    # Load the string into a dictionary
+                    json_dict = json.loads(json_str)
+
+                except Exception as e:
+                    logger.warning("Could not read {source}. Skipping it. Error: {error}", source=source, error=e)
+                    continue
+
             try:
-                # Convert the ByteStream data to a string
-                json_str = bytestream.data.decode("utf-8")
-
-                # Load the string into a dictionary
-                json_dict = json.loads(json_str)
-
                 # Flatten the dictionary
                 flattened_json_dict = flatten(json_dict)
-
                 # Convert to a string
                 flattened_string = json.dumps(flattened_json_dict)
-
-
             except Exception as e:
-                logger.warning(
-                    "Could not convert file {source}. Skipping it. Error message: {error}", source=source, error=e
-                )
+                logger.warning(f"Could not flatten JSON from {source}. Skipping it. Error: {e}")
                 continue
-
-
-
-            merged_metadata = {**bytestream.meta, **metadata}
+            
+            if source_json_str:
+                merged_metadata = {**metadata}
+            else:
+                merged_metadata = {**bytestream.meta, **metadata}
+            
             document = Document(content=flattened_string, meta=merged_metadata)
             documents.append(document)
 
