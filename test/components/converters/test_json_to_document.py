@@ -5,95 +5,106 @@ import logging
 from pathlib import Path
 import json
 import pytest
-
-from haystack.dataclasses import ByteStream
-from haystack.components.converters.json import JSONToDocument
+import os
 
 
-class TestJSONToDocument:
+from haystack.components.converters.jq_json import JQToJSON
+
+
+class TestJQJSONToDocument:
+    
+  
+
+
     def test_run(self, test_files_path,caplog):
         """
-        Test if the component runs correctly.
+        Test if the component runs correctly, both standard JSON and JSON lines
+        Using a subset of the nobel prize dataset - https://api.nobelprize.org/v1/prize.json
+        Values to verify document against expected:
+        1) Number of documents generated
+        2) output[0].content =  .first() value of the jq query - Validate content field
+        3) output[0].meta = output of metadata function + additional metadata - Validate metadata
+        
         """
-        sample_json = {
-            "store": {
-                "book": [
-                    {"category": "fiction", "price": 8.95, "title": "Book A"},
-                    {"category": "non-fiction", "price": 12.99, "title": "Book B"}
-                ]
-            }
-        }
-        json_string = json.dumps (sample_json)
-
-        # Save JSON content to a file
+        # **** - Need to do JSON lines
+        # Test data 
         file_path = test_files_path / "json" / "sample.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w") as f:
-            json.dump(sample_json, f)
+        file_path_lines = test_files_path / "json" / "sample_json_lines.json" #json lines
+        # file_path.parent.mkdir(parents=True, exist_ok=True)
+        jq_data_schema = '.prizes[].laureates[]?'
+        jq_data_schema_lines = 'del(.share)'
+        expected_content = {
+        "id": "1029", "firstname": "Moungi", "surname": "Bawendi", 
+        "motivation": "\"for the discovery and synthesis of quantum dots\"", 
+        "share": "3"} 
+        expected_meta = {
+        'dataset': 'nobel data set', 'seq_no': 1, 'file_path': 'sample.json', 
+        'id': '1029', 'firstname': 'Moungi', 'surname': 'Bawendi', 'share': '3','jq_schema': '.prizes[].laureates[]?'}
+        expected_content_lines = {"year": "2023", "category": "chemistry", "id": "1029", "firstname": "Moungi", "surname": "Bawendi", "motivation": "\"for the discovery and synthesis of quantum dots\""}
+        expected_meta_lines =  {'dataset': 'nobel data set', 'id': '1029', 'firstname': 'Moungi', 'surname': 'Bawendi', 
+            'share': None, 'seq_no': 1, 
+            'file_path': 'sample_json_lines.json', 'jq_schema': 'del(.share)'}
 
-        # Test all the sources
-        source_list = ['string','file name','Path name','Bytestream']
 
-        for source in source_list:
-            if source == 'string':
-                sources = json_string
-                file_path = ''
-            elif source == 'file name':
-                sources = file_path
-            elif source == 'Path name':
-                sources = Path(file_path)
-            else:
-                bytestream = ByteStream.from_string(json_string, mime_type="application/json")
-                sources = bytestream
-                file_path = None
-            converter = JSONToDocument()
-            meta={"file_path": str(file_path)}
-            with caplog.at_level(logging.WARNING):
-                output = converter.run([sources],[meta])
-            docs = output["documents"]
-            assert len(docs) == 1
-            assert "store_book_0_category" in docs[0].content
-            assert docs[0].meta["file_path"] == str(file_path)
-            file_path = test_files_path / "json" / "sample.json"
+
+
+    
+
+        # Metadata function
+        def metadata_func(sample: dict) -> dict:
+            metadata = {}
+            metadata["id"] = sample.get("id")
+            metadata["firstname"] = sample.get("firstname")
+            metadata["surname"] = sample.get("surname")
+            metadata["share"] = sample.get("share")
+            return metadata
+
+        converter = JQToJSON()
+        with caplog.at_level(logging.WARNING):
+            output_dict = converter.run(sources = file_path,jq_data_schema=jq_data_schema, metadata_func=metadata_func,
+                                   metadata = {'dataset': 'nobel data set'},json_lines=False)
+        
+        #print ('file path  ', file_path, 'output:   ',output)
+        #print("Current working directory:", os.getcwd())
+        #print("Environment variables:", os.environ)
+        output = output_dict["documents"]
+        doc_dict = json.loads(output[0].content)
+        meta = output[0].meta
+        assert len(output) == 25
+        assert doc_dict == expected_content
+        assert meta == expected_meta
+        
+        # Test json_lines format
+        
+        converter_lines = JQToJSON()
+        
+        with caplog.at_level(logging.WARNING):
+            output_dict = converter_lines.run(sources = file_path_lines,jq_data_schema=jq_data_schema_lines, metadata_func=metadata_func,
+                                   metadata = {'dataset': 'nobel data set'},json_lines=True)
+        
+        #Look at first element
+        output = output_dict ['documents']
+        doc_dict = json.loads(output[0][0].content)
+        meta = output[0][0].meta
+        
+        assert len(output) == 25
+        assert doc_dict == expected_content_lines
+        assert meta == expected_meta_lines
+
+        
+        return
 
     def test_run_error_handling(self, test_files_path, caplog):
         """
         Test if the component correctly handles errors.
         """
-        paths = [test_files_path / "json" / "sample.json", "non_existing_file.json"]
-        converter = JSONToDocument()
-        meta = [{"file_path": str(paths[0])},{'file_path': ''}]
+        #set up
+        file_path_error = "non_existing_file.json"
+        converter_error = JQToJSON()
+
         with caplog.at_level(logging.WARNING):
-            output = converter.run(sources=paths, meta=meta)
-            assert "non_existing_file.json" in caplog.text
-        docs = output["documents"]
-        assert len(docs) == 1
-        assert docs[0].meta["file_path"] == str(paths[0])
+            output = converter_error.run(sources = file_path_error,jq_data_schema='', metadata_func=None,
+                                   metadata = None,json_lines=False)
+        assert "non_existing_file.json" in caplog.text
+        return
 
-    def test_run_with_meta(self, test_files_path):
-        """
-        Test if the component correctly merges metadata.
-        """
-        sample_json = {
-            "store": {
-                "book": [
-                    {"category": "fiction", "price": 8.95, "title": "Book A"},
-                    {"category": "non-fiction", "price": 12.99, "title": "Book B"}
-                ]
-            }
-        }
-
-        # Save JSON content to a file
-        file_path = test_files_path / "json" / "sample.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w") as f:
-            json.dump(sample_json, f)
-
-        converter = JSONToDocument()
-        bytestream = ByteStream.from_file_path(file_path, meta={"author": "test_author"})
-        output = converter.run(sources=[bytestream], meta={"language": "en"})
-        document = output["documents"][0]
-
-        # Validate the metadata merge
-        assert document.meta["author"] == "test_author"
-        assert document.meta["language"] == "en"
