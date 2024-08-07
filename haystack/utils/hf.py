@@ -7,8 +7,6 @@ import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import requests
-
 from haystack import logging
 from haystack.dataclasses import StreamingChunk
 from haystack.lazy_imports import LazyImport
@@ -136,7 +134,7 @@ def deserialize_hf_model_kwargs(kwargs: Dict[str, Any]):
 
 def resolve_hf_device_map(device: Optional[ComponentDevice], model_kwargs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Update `model_kwargs` to include the keyword argument `device_map` based on `device` if `device_map` is not already present in `model_kwargs`.
+    Update `model_kwargs` to include the keyword argument `device_map`.
 
     This method is useful you want to force loading a transformers model when using `AutoModel.from_pretrained` to
     use `device_map`.
@@ -212,27 +210,6 @@ def resolve_hf_pipeline_kwargs(
     return huggingface_pipeline_kwargs
 
 
-def list_inference_deployed_models(headers: Optional[Dict] = None) -> List[str]:
-    """
-    List all currently deployed models on HF TGI free tier
-
-    :param headers: Optional dictionary of headers to include in the request
-    :return: list of all currently deployed models
-    :raises Exception: If the request to the TGI API fails
-
-    """
-    resp = requests.get(
-        "https://api-inference.huggingface.co/framework/text-generation-inference", headers=headers, timeout=10
-    )
-
-    payload = resp.json()
-    if resp.status_code != 200:
-        message = payload.get("error", "Unknown TGI error")
-        error_type = payload.get("error_type", "Unknown TGI error type")
-        raise Exception(f"Failed to fetch TGI deployed models: {message}. Error type: {error_type}")
-    return [model["model_id"] for model in payload]
-
-
 def check_valid_model(model_id: str, model_type: HFModelType, token: Optional[Secret]) -> None:
     """
     Check if the provided model ID corresponds to a valid model on HuggingFace Hub.
@@ -260,6 +237,9 @@ def check_valid_model(model_id: str, model_type: HFModelType, token: Optional[Se
     elif model_type == HFModelType.GENERATION:
         allowed_model = model_info.pipeline_tag in ["text-generation", "text2text-generation"]
         error_msg = f"Model {model_id} is not a text generation model. Please provide a text generation model."
+    else:
+        allowed_model = False
+        error_msg = f"Unknown model type for {model_id}"
 
     if not allowed_model:
         raise ValueError(error_msg)

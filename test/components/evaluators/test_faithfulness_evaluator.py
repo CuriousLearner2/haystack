@@ -8,6 +8,7 @@ from typing import List
 import numpy as np
 import pytest
 
+from haystack import Pipeline
 from haystack.components.evaluators import FaithfulnessEvaluator
 from haystack.utils.auth import Secret
 
@@ -91,6 +92,32 @@ class TestFaithfulnessEvaluator:
             {"inputs": {"predicted_answers": "Football is the most popular sport."}, "outputs": {"custom_score": 0}},
         ]
 
+    def test_to_dict_with_parameters(self, monkeypatch):
+        monkeypatch.setenv("ENV_VAR", "test-api-key")
+        component = FaithfulnessEvaluator(
+            api="openai",
+            api_key=Secret.from_env_var("ENV_VAR"),
+            examples=[
+                {"inputs": {"predicted_answers": "Football is the most popular sport."}, "outputs": {"score": 0}}
+            ],
+            raise_on_failure=False,
+            progress_bar=False,
+        )
+        data = component.to_dict()
+        assert data == {
+            "type": "haystack.components.evaluators.faithfulness.FaithfulnessEvaluator",
+            "init_parameters": {
+                "api_key": {"env_vars": ["ENV_VAR"], "strict": True, "type": "env_var"},
+                "api": "openai",
+                "api_params": {"generation_kwargs": {"response_format": {"type": "json_object"}, "seed": 42}},
+                "examples": [
+                    {"inputs": {"predicted_answers": "Football is the most popular sport."}, "outputs": {"score": 0}}
+                ],
+                "progress_bar": False,
+                "raise_on_failure": False,
+            },
+        }
+
     def test_from_dict(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
@@ -110,6 +137,10 @@ class TestFaithfulnessEvaluator:
         assert component.examples == [
             {"inputs": {"predicted_answers": "Football is the most popular sport."}, "outputs": {"score": 0}}
         ]
+
+        pipeline = Pipeline()
+        pipeline.add_component("evaluator", component)
+        assert pipeline.loads(pipeline.dumps())
 
     def test_run_calculates_mean_score(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
@@ -149,6 +180,7 @@ class TestFaithfulnessEvaluator:
                 {"score": 1, "statement_scores": [1, 1], "statements": ["c", "d"]},
             ],
             "score": 0.75,
+            "meta": None,
         }
 
     def test_run_no_statements_extracted(self, monkeypatch):
@@ -185,6 +217,7 @@ class TestFaithfulnessEvaluator:
                 {"score": 0, "statement_scores": [], "statements": []},
             ],
             "score": 0.25,
+            "meta": None,
         }
 
     def test_run_missing_parameters(self, monkeypatch):
@@ -252,3 +285,9 @@ class TestFaithfulnessEvaluator:
         assert all(field in result for field in required_fields)
         nested_required_fields = {"score", "statement_scores", "statements"}
         assert all(field in result["results"][0] for field in nested_required_fields)
+
+        # assert that metadata is present in the result
+        assert "meta" in result
+        assert "prompt_tokens" in result["meta"][0]["usage"]
+        assert "completion_tokens" in result["meta"][0]["usage"]
+        assert "total_tokens" in result["meta"][0]["usage"]

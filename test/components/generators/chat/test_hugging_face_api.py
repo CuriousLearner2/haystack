@@ -15,7 +15,10 @@ from huggingface_hub import (
 )
 from huggingface_hub.utils import RepositoryNotFoundError
 
-from haystack.components.generators.chat import HuggingFaceAPIChatGenerator
+from haystack.components.generators.chat.hugging_face_api import (
+    HuggingFaceAPIChatGenerator,
+    _convert_message_to_hfapi_format,
+)
 from haystack.dataclasses import ChatMessage, StreamingChunk
 from haystack.utils.auth import Secret
 from haystack.utils.hf import HFGenerationAPIType
@@ -44,7 +47,6 @@ def mock_chat_completion():
             ],
             id="some_id",
             model="some_model",
-            object="some_object",
             system_fingerprint="some_fingerprint",
             usage={"completion_tokens": 10, "prompt_tokens": 5, "total_tokens": 15},
             created=1710498360,
@@ -57,6 +59,21 @@ def mock_chat_completion():
 # used to test serialization of streaming_callback
 def streaming_callback_handler(x):
     return x
+
+
+def test_convert_message_to_hfapi_format():
+    message = ChatMessage.from_system("You are good assistant")
+    assert _convert_message_to_hfapi_format(message) == {"role": "system", "content": "You are good assistant"}
+
+    message = ChatMessage.from_user("I have a question")
+    assert _convert_message_to_hfapi_format(message) == {"role": "user", "content": "I have a question"}
+
+    message = ChatMessage.from_function("Function call", "function_name")
+    assert _convert_message_to_hfapi_format(message) == {
+        "role": "function",
+        "content": "Function call",
+        "name": "function_name",
+    }
 
 
 class TestHuggingFaceAPIGenerator:
@@ -133,7 +150,6 @@ class TestHuggingFaceAPIGenerator:
         generator = HuggingFaceAPIChatGenerator(
             api_type=HFGenerationAPIType.SERVERLESS_INFERENCE_API,
             api_params={"model": "HuggingFaceH4/zephyr-7b-beta"},
-            token=Secret.from_env_var("ENV_VAR", strict=False),
             generation_kwargs={"temperature": 0.6},
             stop_words=["stop", "words"],
         )
@@ -143,7 +159,7 @@ class TestHuggingFaceAPIGenerator:
 
         assert init_params["api_type"] == "serverless_inference_api"
         assert init_params["api_params"] == {"model": "HuggingFaceH4/zephyr-7b-beta"}
-        assert init_params["token"] == {"env_vars": ["ENV_VAR"], "strict": False, "type": "env_var"}
+        assert init_params["token"] == {"env_vars": ["HF_API_TOKEN", "HF_TOKEN"], "strict": False, "type": "env_var"}
         assert init_params["generation_kwargs"] == {"temperature": 0.6, "stop": ["stop", "words"], "max_tokens": 512}
 
     def test_from_dict(self, mock_check_valid_model):
@@ -216,7 +232,6 @@ class TestHuggingFaceAPIGenerator:
                 ],
                 id="some_id",
                 model="some_model",
-                object="some_object",
                 system_fingerprint="some_fingerprint",
                 created=1710498504,
             )
@@ -229,7 +244,6 @@ class TestHuggingFaceAPIGenerator:
                 ],
                 id="some_id",
                 model="some_model",
-                object="some_object",
                 system_fingerprint="some_fingerprint",
                 created=1710498504,
             )

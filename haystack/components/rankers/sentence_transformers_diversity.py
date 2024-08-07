@@ -11,7 +11,7 @@ from haystack.utils import ComponentDevice, Secret, deserialize_secrets_inplace
 logger = logging.getLogger(__name__)
 
 
-with LazyImport(message="Run 'pip install \"sentence-transformers>=2.2.0\"'") as torch_and_sentence_transformers_import:
+with LazyImport(message="Run 'pip install \"sentence-transformers>=2.3.0\"'") as torch_and_sentence_transformers_import:
     import torch
     from sentence_transformers import SentenceTransformer
 
@@ -48,7 +48,7 @@ class SentenceTransformersDiversityRanker:
         model: str = "sentence-transformers/all-MiniLM-L6-v2",
         top_k: int = 10,
         device: Optional[ComponentDevice] = None,
-        token: Optional[Secret] = Secret.from_env_var("HF_API_TOKEN", strict=False),
+        token: Optional[Secret] = Secret.from_env_var(["HF_API_TOKEN", "HF_TOKEN"], strict=False),
         similarity: Literal["dot_product", "cosine"] = "cosine",
         query_prefix: str = "",
         query_suffix: str = "",
@@ -142,9 +142,9 @@ class SentenceTransformersDiversityRanker:
             The deserialized component.
         """
         init_params = data["init_parameters"]
-        if init_params["device"] is not None:
+        if init_params.get("device") is not None:
             init_params["device"] = ComponentDevice.from_dict(init_params["device"])
-        deserialize_secrets_inplace(data["init_parameters"], keys=["token"])
+        deserialize_secrets_inplace(init_params, keys=["token"])
         return default_from_dict(cls, data)
 
     def _prepare_texts_to_embed(self, documents: List[Document]) -> List[str]:

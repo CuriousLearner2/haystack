@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -34,34 +33,15 @@ class HTMLToDocument:
     ```
     """
 
-    def __init__(
-        self,
-        extractor_type: Optional[str] = None,
-        try_others: Optional[bool] = None,
-        extraction_kwargs: Optional[Dict[str, Any]] = None,
-    ):
+    def __init__(self, extraction_kwargs: Optional[Dict[str, Any]] = None):
         """
         Create an HTMLToDocument component.
 
-        :param extractor_type: Ignored. This parameter is kept for compatibility with previous versions. It will be
-            removed in Haystack 2.4.0. To customize the extraction, use the `extraction_kwargs` parameter.
-        :param try_others: Ignored. This parameter is kept for compatibility with previous versions. It will be
-            removed in Haystack 2.4.0.
         :param extraction_kwargs: A dictionary containing keyword arguments to customize the extraction process. These
             are passed to the underlying Trafilatura `extract` function. For the full list of available arguments, see
             the [Trafilatura documentation](https://trafilatura.readthedocs.io/en/latest/corefunctions.html#extract).
         """
         trafilatura_import.check()
-        if extractor_type is not None:
-            warnings.warn(
-                "The `extractor_type` parameter is ignored and will be removed in Haystack 2.4.0. "
-                "To customize the extraction, use the `extraction_kwargs` parameter.",
-                DeprecationWarning,
-            )
-        if try_others is not None:
-            warnings.warn(
-                "The `try_others` parameter is ignored and will be removed in Haystack 2.4.0. ", DeprecationWarning
-            )
 
         self.extraction_kwargs = extraction_kwargs or {}
 
@@ -102,7 +82,8 @@ class HTMLToDocument:
             Optional metadata to attach to the Documents.
             This value can be either a list of dictionaries or a single dictionary.
             If it's a single dictionary, its content is added to the metadata of all produced Documents.
-            If it's a list, the length of the list must match the number of sources, because the two lists will be zipped.
+            If it's a list, the length of the list must match the number of sources, because the two lists will
+            be zipped.
             If `sources` contains ByteStream objects, their `meta` will be added to the output Documents.
         :param extraction_kwargs:
             Additional keyword arguments to customize the extraction process.

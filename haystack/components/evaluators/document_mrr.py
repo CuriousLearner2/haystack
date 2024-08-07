@@ -41,6 +41,7 @@ class DocumentMRREvaluator:
     ```
     """
 
+    # Refer to https://www.pinecone.io/learn/offline-evaluation/ for the algorithm.
     @component.output_types(score=float, individual_scores=List[float])
     def run(
         self, ground_truth_documents: List[List[Document]], retrieved_documents: List[List[Document]]
@@ -57,7 +58,8 @@ class DocumentMRREvaluator:
         :returns:
             A dictionary with the following outputs:
             - `score` - The average of calculated scores.
-            - `individual_scores` - A list of numbers from 0.0 to 1.0 that represents how high the first retrieved document is ranked.
+            - `individual_scores` - A list of numbers from 0.0 to 1.0 that represents how high the first retrieved
+                document is ranked.
         """
         if len(ground_truth_documents) != len(retrieved_documents):
             msg = "The length of ground_truth_documents and retrieved_documents must be the same."
@@ -66,20 +68,17 @@ class DocumentMRREvaluator:
         individual_scores = []
 
         for ground_truth, retrieved in zip(ground_truth_documents, retrieved_documents):
-            score = 0.0
-            for ground_document in ground_truth:
-                if ground_document.content is None:
+            reciprocal_rank = 0.0
+
+            ground_truth_contents = [doc.content for doc in ground_truth if doc.content is not None]
+            for rank, retrieved_document in enumerate(retrieved):
+                if retrieved_document.content is None:
                     continue
+                if retrieved_document.content in ground_truth_contents:
+                    reciprocal_rank = 1 / (rank + 1)
+                    break
+            individual_scores.append(reciprocal_rank)
 
-                for rank, retrieved_document in enumerate(retrieved):
-                    if retrieved_document.content is None:
-                        continue
-
-                    if ground_document.content in retrieved_document.content:
-                        score = 1 / (rank + 1)
-                        break
-            individual_scores.append(score)
-
-        score = sum(individual_scores) / len(retrieved_documents)
+        score = sum(individual_scores) / len(ground_truth_documents)
 
         return {"score": score, "individual_scores": individual_scores}

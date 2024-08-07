@@ -78,6 +78,7 @@ class TestOpenAIGenerator:
                 "streaming_callback": None,
                 "system_prompt": None,
                 "api_base_url": None,
+                "organization": None,
                 "generation_kwargs": {},
             },
         }
@@ -89,6 +90,7 @@ class TestOpenAIGenerator:
             model="gpt-4",
             streaming_callback=print_streaming_chunk,
             api_base_url="test-base-url",
+            organization="org-1234567",
             generation_kwargs={"max_tokens": 10, "some_test_param": "test-params"},
         )
         data = component.to_dict()
@@ -99,6 +101,7 @@ class TestOpenAIGenerator:
                 "model": "gpt-4",
                 "system_prompt": None,
                 "api_base_url": "test-base-url",
+                "organization": "org-1234567",
                 "streaming_callback": "haystack.components.generators.utils.print_streaming_chunk",
                 "generation_kwargs": {"max_tokens": 10, "some_test_param": "test-params"},
             },
@@ -119,6 +122,7 @@ class TestOpenAIGenerator:
                 "api_key": {"env_vars": ["OPENAI_API_KEY"], "strict": True, "type": "env_var"},
                 "model": "gpt-4",
                 "system_prompt": None,
+                "organization": None,
                 "api_base_url": "test-base-url",
                 "streaming_callback": "test_openai.<lambda>",
                 "generation_kwargs": {"max_tokens": 10, "some_test_param": "test-params"},
@@ -133,6 +137,7 @@ class TestOpenAIGenerator:
                 "api_key": {"env_vars": ["OPENAI_API_KEY"], "strict": True, "type": "env_var"},
                 "model": "gpt-4",
                 "system_prompt": None,
+                "organization": None,
                 "api_base_url": "test-base-url",
                 "streaming_callback": "haystack.components.generators.utils.print_streaming_chunk",
                 "generation_kwargs": {"max_tokens": 10, "some_test_param": "test-params"},
@@ -180,6 +185,27 @@ class TestOpenAIGenerator:
 
         component = OpenAIGenerator(api_key=Secret.from_token("test-api-key"), streaming_callback=streaming_callback)
         response = component.run("Come on, stream!")
+
+        # check we called the streaming callback
+        assert streaming_callback_called
+
+        # check that the component still returns the correct response
+        assert isinstance(response, dict)
+        assert "replies" in response
+        assert isinstance(response["replies"], list)
+        assert len(response["replies"]) == 1
+        assert "Hello" in response["replies"][0]  # see mock_chat_completion_chunk
+
+    def test_run_with_streaming_callback_in_run_method(self, mock_chat_completion_chunk):
+        streaming_callback_called = False
+
+        def streaming_callback(chunk: StreamingChunk) -> None:
+            nonlocal streaming_callback_called
+            streaming_callback_called = True
+
+        # pass streaming_callback to run()
+        component = OpenAIGenerator(api_key=Secret.from_token("test-api-key"))
+        response = component.run("Come on, stream!", streaming_callback=streaming_callback)
 
         # check we called the streaming callback
         assert streaming_callback_called

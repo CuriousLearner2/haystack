@@ -4,6 +4,7 @@
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from fnmatch import fnmatch
 from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
@@ -51,12 +52,16 @@ def _binary_content_handler(response: Response) -> ByteStream:
 @component
 class LinkContentFetcher:
     """
-    LinkContentFetcher is a component for fetching and extracting content from URLs.
+    Fetches and extracts content from URLs.
 
-    It supports handling various content types, retries on failures, and automatic user-agent rotation for failed web
-    requests.
+    It supports various content types, retries on failures, and automatic user-agent rotation for failed web
+    requests. Use it as the data-fetching step in your pipelines.
 
-    Usage example:
+    You may need to convert LinkContentFetcher's output into a list of documents. Use HTMLToDocument
+    converter to do this.
+
+    ### Usage example
+
     ```python
     from haystack.components.fetchers.link_content import LinkContentFetcher
 
@@ -83,7 +88,7 @@ class LinkContentFetcher:
             For multiple URLs, it logs errors and returns the content it successfully fetched.
         :param user_agents: [User agents](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/User-Agent)
             for fetching content. If `None`, a default user agent is used.
-        :param retry_attempts: Specifies how many times you want it to retry to fetch the URL's content.
+        :param retry_attempts: The number of times to retry to fetch the URL's content.
         :param timeout: Timeout in seconds for the request.
         """
         self.raise_on_failure = raise_on_failure
@@ -94,10 +99,13 @@ class LinkContentFetcher:
 
         # register default content handlers that extract data from the response
         self.handlers: Dict[str, Callable[[Response], ByteStream]] = defaultdict(lambda: _text_content_handler)
-        self.handlers["text/html"] = _text_content_handler
-        self.handlers["text/plain"] = _text_content_handler
-        self.handlers["application/pdf"] = _binary_content_handler
-        self.handlers["application/octet-stream"] = _binary_content_handler
+        self.handlers["text/*"] = _text_content_handler
+        self.handlers["text/html"] = _binary_content_handler
+        self.handlers["application/json"] = _text_content_handler
+        self.handlers["application/*"] = _binary_content_handler
+        self.handlers["image/*"] = _binary_content_handler
+        self.handlers["audio/*"] = _binary_content_handler
+        self.handlers["video/*"] = _binary_content_handler
 
         @retry(
             reraise=True,
@@ -163,8 +171,8 @@ class LinkContentFetcher:
         :param url: The URL to fetch content from.
         :return: A tuple containing the ByteStream metadata dict and the corresponding ByteStream.
              ByteStream metadata contains the URL and the content type of the fetched content.
-             The content type is a string indicating the type of content fetched (for example, "text/html", "application/pdf").
-             The ByteStream object contains the fetched content as binary data.
+             The content type is a string indicating the type of content fetched (for example, "text/html",
+             "application/pdf"). The ByteStream object contains the fetched content as binary data.
 
         :raises: If an error occurs during content retrieval and `raise_on_failure` is set to True, this method will
         raise an exception. Otherwise, all fetching errors are logged, and an empty ByteStream is returned.
@@ -175,7 +183,7 @@ class LinkContentFetcher:
         try:
             response = self._get_response(url)
             content_type = self._get_content_type(response)
-            handler: Callable = self.handlers[content_type]
+            handler: Callable = self._resolve_handler(content_type)
             stream = handler(response)
         except Exception as e:
             if self.raise_on_failure:
@@ -216,6 +224,29 @@ class LinkContentFetcher:
         """
         content_type = response.headers.get("Content-Type", "")
         return content_type.split(";")[0]
+
+    def _resolve_handler(self, content_type: str) -> Callable[[Response], ByteStream]:
+        """
+        Resolves the handler for the given content type.
+
+        First, it tries to find a direct match for the content type in the handlers dictionary.
+        If no direct match is found, it tries to find a pattern match using the fnmatch function.
+        If no pattern match is found, it returns the default handler for text/plain.
+
+        :param content_type: The content type to resolve the handler for.
+        :returns: The handler for the given content type, if found. Otherwise, the default handler for text/plain.
+        """
+        # direct match
+        if content_type in self.handlers:
+            return self.handlers[content_type]
+
+        # pattern matches
+        for pattern, handler in self.handlers.items():
+            if fnmatch(content_type, pattern):
+                return handler
+
+        # default handler
+        return self.handlers["text/plain"]
 
     def _switch_user_agent(self, retry_state: RetryCallState) -> None:
         """

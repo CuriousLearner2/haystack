@@ -4,9 +4,10 @@
 
 from typing import Any, Dict, List, Optional, Set
 
-from jinja2 import Template, meta
+from jinja2 import meta
+from jinja2.sandbox import SandboxedEnvironment
 
-from haystack import component, logging
+from haystack import component, default_from_dict, default_to_dict, logging
 from haystack.dataclasses.chat_message import ChatMessage, ChatRole
 
 logger = logging.getLogger(__name__)
@@ -20,10 +21,10 @@ class ChatPromptBuilder:
     It is designed to construct prompts for the pipeline using static or dynamic templates: Users can change
     the prompt template at runtime by providing a new template for each pipeline run invocation if needed.
 
-    The template variables found in the init template string are used as input types for the component and are all optional,
-    unless explicitly specified. If an optional template variable is not provided as an input, it will be replaced with
-    an empty string in the rendered prompt. Use `variable` and `required_variables` to specify the input types and
-    required variables.
+    The template variables found in the init template string are used as input types for the component and are all
+    optional, unless explicitly specified. If an optional template variable is not provided as an input, it will be
+    replaced with an empty string in the rendered prompt. Use `variable` and `required_variables` to specify the input
+    types and required variables.
 
     Usage example with static prompt template:
     ```python
@@ -38,7 +39,8 @@ class ChatPromptBuilder:
     builder = ChatPromptBuilder(template=template)
     builder.run(target_language="spanish", snippet="I can't speak spanish.")
 
-    summary_template = [ChatMessage.from_user("Translate to {{ target_language }} and summarize. Context: {{ snippet }}; Summary:")]
+    msg = "Translate to {{ target_language }} and summarize. Context: {{ snippet }}; Summary:"
+    summary_template = [ChatMessage.from_user(msg)]
     builder.run(target_language="spanish", snippet="I can't speak spanish.", template=summary_template)
     ```
 
@@ -122,12 +124,12 @@ class ChatPromptBuilder:
         self.required_variables = required_variables or []
         self.template = template
         variables = variables or []
+        self._env = SandboxedEnvironment()
         if template and not variables:
             for message in template:
                 if message.is_from(ChatRole.USER) or message.is_from(ChatRole.SYSTEM):
                     # infere variables from template
-                    msg_template = Template(message.content)
-                    ast = msg_template.environment.parse(message.content)
+                    ast = self._env.parse(message.content)
                     template_variables = meta.find_undeclared_variables(ast)
                     variables += list(template_variables)
 
@@ -155,13 +157,14 @@ class ChatPromptBuilder:
         set directly to this method. On collision, the variables provided directly to this method take precedence.
 
         :param template:
-            An optional list of ChatMessages to overwrite ChatPromptBuilder's default template. If None, the default template
-            provided at initialization is used.
+            An optional list of ChatMessages to overwrite ChatPromptBuilder's default template. If None, the default
+            template provided at initialization is used.
         :param template_variables:
             An optional dictionary of template variables. These are additional variables users can provide directly
             to this method in contrast to pipeline variables.
         :param kwargs:
-            Pipeline variables (typically resolved from a pipeline) which are merged with the provided template variables.
+            Pipeline variables (typically resolved from a pipeline) which are merged with the provided template
+            variables.
 
         :returns: A dictionary with the following keys:
             - `prompt`: The updated list of `ChatMessage` instances after rendering the found templates.
@@ -192,7 +195,8 @@ class ChatPromptBuilder:
         for message in template:
             if message.is_from(ChatRole.USER) or message.is_from(ChatRole.SYSTEM):
                 self._validate_variables(set(template_variables_combined.keys()))
-                compiled_template = Template(message.content)
+
+                compiled_template = self._env.from_string(message.content)
                 rendered_content = compiled_template.render(template_variables_combined)
                 rendered_message = (
                     ChatMessage.from_user(rendered_content)
@@ -221,3 +225,37 @@ class ChatPromptBuilder:
                 f"Missing required input variables in ChatPromptBuilder: {missing_vars_str}. "
                 f"Required variables: {self.required_variables}. Provided variables: {provided_variables}."
             )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary representation of the component.
+
+        :returns:
+            Serialized dictionary representation of the component.
+        """
+        if self.template is not None:
+            template = [m.to_dict() for m in self.template]
+        else:
+            template = None
+
+        return default_to_dict(
+            self, template=template, variables=self._variables, required_variables=self._required_variables
+        )
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ChatPromptBuilder":
+        """
+        Deserialize this component from a dictionary.
+
+        :param data:
+            The dictionary to deserialize and create the component.
+
+        :returns:
+            The deserialized component.
+        """
+        init_parameters = data["init_parameters"]
+        template = init_parameters.get("template")
+        if template:
+            init_parameters["template"] = [ChatMessage.from_dict(d) for d in template]
+
+        return default_from_dict(cls, data)

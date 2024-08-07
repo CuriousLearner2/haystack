@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from haystack import Document, GeneratedAnswer, component, logging
+from haystack.dataclasses.chat_message import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,15 @@ logger = logging.getLogger(__name__)
 @component
 class AnswerBuilder:
     """
-    Takes a query and the replies a Generator returns as input and parses them into GeneratedAnswer objects.
+    Converts a query and Generator replies into a `GeneratedAnswer` object.
 
-    Optionally, it also takes Documents and metadata from the Generator as inputs to enrich the GeneratedAnswer objects.
+    AnswerBuilder parses Generator replies using custom regular expressions.
+    Check out the usage example below to see how it works.
+    Optionally, it can also take documents and metadata from the Generator to add to the `GeneratedAnswer` object.
+    AnswerBuilder works with both non-chat and chat Generators.
 
-    Usage example:
+    ### Usage example
+
     ```python
     from haystack.components.builders import AnswerBuilder
 
@@ -31,20 +36,20 @@ class AnswerBuilder:
         Creates an instance of the AnswerBuilder component.
 
         :param pattern:
-            The regular expression pattern to use to extract the answer text from the generator output.
-            If not specified, the whole string is used as the answer. The regular expression can have at
-            most one capture group. If a capture group is present, the text matched by the capture group
+            The regular expression pattern to extract the answer text from the Generator.
+            If not specified, the entire response is used as the answer.
+            The regular expression can have one capture group at most.
+            If present, the capture group text
             is used as the answer. If no capture group is present, the whole match is used as the answer.
             Examples:
                 `[^\\n]+$` finds "this is an answer" in a string "this is an argument.\\nthis is an answer".
                 `Answer: (.*)` finds "this is an answer" in a string "this is an argument. Answer: this is an answer".
 
         :param reference_pattern:
-            The regular expression pattern to use for parsing the document references.
-            We assume that references are specified as indices of the input documents and that
-            indices start at 1.
-            Example: `\\[(\\d+)\\]` finds "1" in a string "this is an answer[1]".
+            The regular expression pattern used for parsing the document references.
             If not specified, no parsing is done, and all documents are referenced.
+            References need to be specified as indices of the input documents and start at [1].
+            Example: `\\[(\\d+)\\]` finds "1" in a string "this is an answer[1]".
         """
         if pattern:
             AnswerBuilder._check_num_groups_in_regex(pattern)
@@ -56,41 +61,44 @@ class AnswerBuilder:
     def run(
         self,
         query: str,
-        replies: List[str],
+        replies: Union[List[str], List[ChatMessage]],
         meta: Optional[List[Dict[str, Any]]] = None,
         documents: Optional[List[Document]] = None,
         pattern: Optional[str] = None,
         reference_pattern: Optional[str] = None,
     ):
         """
-        Turns the output of a Generator into `Answer` objects using regular expressions.
+        Turns the output of a Generator into `GeneratedAnswer` objects using regular expressions.
 
         :param query:
-            The query used in the prompts for the Generator.
+            The input query used as the Generator prompt.
         :param replies:
-            The output of the Generator.
+            The output of the Generator. Can be a list of strings or a list of `ChatMessage` objects.
         :param meta:
             The metadata returned by the Generator. If not specified, the generated answer will contain no metadata.
         :param documents:
-            The documents used as input to the Generator. If `documents` are specified, they are added to the `Answer`
-            objects. If both `documents` and `reference_pattern` are specified, the documents referenced in the
-            Generator output are extracted from the input documents and added to the `Answer` objects.
+            The documents used as the Generator inputs. If specified, they are added to
+            the`GeneratedAnswer` objects.
+            If both `documents` and `reference_pattern` are specified, the documents referenced in the
+            Generator output are extracted from the input documents and added to the `GeneratedAnswer` objects.
         :param pattern:
-            The regular expression pattern to use to extract the answer text from the generator output.
-            If not specified, the whole string is used as the answer. The regular expression can have at
-            most one capture group. If a capture group is present, the text matched by the capture group
+            The regular expression pattern to extract the answer text from the Generator.
+            If not specified, the entire response is used as the answer.
+            The regular expression can have one capture group at most.
+            If present, the capture group text
             is used as the answer. If no capture group is present, the whole match is used as the answer.
                 Examples:
                     `[^\\n]+$` finds "this is an answer" in a string "this is an argument.\\nthis is an answer".
-                    `Answer: (.*)` finds "this is an answer" in a string "this is an argument. Answer: this is an answer".
+                    `Answer: (.*)` finds "this is an answer" in a string
+                    "this is an argument. Answer: this is an answer".
         :param reference_pattern:
-            The regular expression pattern to use for parsing the document references.
-            We assume that references are specified as indices of the input documents and that indices start at 1.
-            Example: `\\[(\\d+)\\]` finds "1" in a string "this is an answer[1]".
+            The regular expression pattern used for parsing the document references.
             If not specified, no parsing is done, and all documents are referenced.
+            References need to be specified as indices of the input documents and start at [1].
+            Example: `\\[(\\d+)\\]` finds "1" in a string "this is an answer[1]".
 
         :returns: A dictionary with the following keys:
-            - `answers`: The answers obtained from the output of the generator
+            - `answers`: The answers received from the output of the Generator.
         """
         if not meta:
             meta = [{}] * len(replies)
@@ -102,14 +110,15 @@ class AnswerBuilder:
 
         pattern = pattern or self.pattern
         reference_pattern = reference_pattern or self.reference_pattern
-
         all_answers = []
         for reply, metadata in zip(replies, meta):
+            # Extract content from ChatMessage objects if reply is a ChatMessages, else use the string as is
+            extracted_reply: str = reply.content if isinstance(reply, ChatMessage) else reply  # type: ignore
+            extracted_metadata = reply.meta if isinstance(reply, ChatMessage) else metadata
             referenced_docs = []
             if documents:
-                reference_idxs = []
                 if reference_pattern:
-                    reference_idxs = AnswerBuilder._extract_reference_idxs(reply, reference_pattern)
+                    reference_idxs = AnswerBuilder._extract_reference_idxs(extracted_reply, reference_pattern)
                 else:
                     reference_idxs = [doc_idx for doc_idx, _ in enumerate(documents)]
 
@@ -121,8 +130,10 @@ class AnswerBuilder:
                             "Document index '{index}' referenced in Generator output is out of range. ", index=idx + 1
                         )
 
-            answer_string = AnswerBuilder._extract_answer_string(reply, pattern)
-            answer = GeneratedAnswer(data=answer_string, query=query, documents=referenced_docs, meta=metadata)
+            answer_string = AnswerBuilder._extract_answer_string(extracted_reply, pattern)
+            answer = GeneratedAnswer(
+                data=answer_string, query=query, documents=referenced_docs, meta=extracted_metadata
+            )
             all_answers.append(answer)
 
         return {"answers": all_answers}

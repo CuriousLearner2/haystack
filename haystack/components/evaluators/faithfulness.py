@@ -6,9 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from numpy import mean as np_mean
 
-from haystack import default_from_dict
+from haystack import component, default_from_dict, default_to_dict
 from haystack.components.evaluators.llm_evaluator import LLMEvaluator
-from haystack.core.component import component
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 # Default examples to include in the prompt if the user does not provide any examples
@@ -46,6 +45,7 @@ _DEFAULT_EXAMPLES = [
 ]
 
 
+@component
 class FaithfulnessEvaluator(LLMEvaluator):
     """
     Evaluator that checks if a generated answer can be inferred from the provided contexts.
@@ -60,11 +60,15 @@ class FaithfulnessEvaluator(LLMEvaluator):
 
     questions = ["Who created the Python language?"]
     contexts = [
-        [
-            "Python, created by Guido van Rossum in the late 1980s, is a high-level general-purpose programming language. Its design philosophy emphasizes code readability, and its language constructs aim to help programmers write clear, logical code for both small and large-scale software projects."
-        ],
+        [(
+            "Python, created by Guido van Rossum in the late 1980s, is a high-level general-purpose programming "
+            "language. Its design philosophy emphasizes code readability, and its language constructs aim to help "
+            "programmers write clear, logical code for both small and large-scale software projects."
+        )],
     ]
-    predicted_answers = ["Python is a high-level general-purpose programming language that was created by George Lucas."]
+    predicted_answers = [
+        "Python is a high-level general-purpose programming language that was created by George Lucas."
+    ]
     evaluator = FaithfulnessEvaluator()
     result = evaluator.run(questions=questions, contexts=contexts, predicted_answers=predicted_answers)
 
@@ -84,6 +88,7 @@ class FaithfulnessEvaluator(LLMEvaluator):
         progress_bar: bool = True,
         api: str = "openai",
         api_key: Secret = Secret.from_env_var("OPENAI_API_KEY"),
+        api_params: Optional[Dict[str, Any]] = None,
         raise_on_failure: bool = True,
     ):
         """
@@ -113,6 +118,8 @@ class FaithfulnessEvaluator(LLMEvaluator):
             Supported APIs: "openai".
         :param api_key:
             The API key.
+        :param api_params:
+            Parameters for an OpenAI API compatible completions call.
         :param raise_on_failure:
             Whether to raise an exception if the API call fails.
 
@@ -129,14 +136,16 @@ class FaithfulnessEvaluator(LLMEvaluator):
         self.examples = examples or _DEFAULT_EXAMPLES
         self.api = api
         self.api_key = api_key
+        self.api_params = api_params or {}
 
-        super().__init__(
+        super(FaithfulnessEvaluator, self).__init__(
             instructions=self.instructions,
             inputs=self.inputs,
             outputs=self.outputs,
             examples=self.examples,
             api=self.api,
             api_key=self.api_key,
+            api_params=self.api_params,
             raise_on_failure=raise_on_failure,
             progress_bar=progress_bar,
         )
@@ -158,7 +167,9 @@ class FaithfulnessEvaluator(LLMEvaluator):
                 - `individual_scores`: A list of faithfulness scores for each input answer.
                 - `results`: A list of dictionaries with `statements` and `statement_scores` for each input answer.
         """
-        result = super().run(questions=questions, contexts=contexts, predicted_answers=predicted_answers)
+        result = super(FaithfulnessEvaluator, self).run(
+            questions=questions, contexts=contexts, predicted_answers=predicted_answers
+        )
 
         # calculate average statement faithfulness score per query
         for idx, res in enumerate(result["results"]):
@@ -175,6 +186,23 @@ class FaithfulnessEvaluator(LLMEvaluator):
         result["individual_scores"] = [res["score"] for res in result["results"]]
 
         return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize this component to a dictionary.
+
+        :returns:
+            A dictionary with serialized data.
+        """
+        return default_to_dict(
+            self,
+            api=self.api,
+            api_key=self.api_key.to_dict() if self.api_key else None,
+            api_params=self.api_params,
+            examples=self.examples,
+            progress_bar=self.progress_bar,
+            raise_on_failure=self.raise_on_failure,
+        )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FaithfulnessEvaluator":

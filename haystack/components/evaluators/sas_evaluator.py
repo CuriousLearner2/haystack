@@ -11,7 +11,7 @@ from haystack.lazy_imports import LazyImport
 from haystack.utils import ComponentDevice, expit
 from haystack.utils.auth import Secret, deserialize_secrets_inplace
 
-with LazyImport(message="Run 'pip install scikit-learn \"sentence-transformers>=2.2.0\"'") as sas_import:
+with LazyImport(message="Run 'pip install \"sentence-transformers>=2.3.0\"'") as sas_import:
     from sentence_transformers import CrossEncoder, SentenceTransformer, util
     from transformers import AutoConfig
 
@@ -19,11 +19,10 @@ with LazyImport(message="Run 'pip install scikit-learn \"sentence-transformers>=
 @component
 class SASEvaluator:
     """
-    SASEvaluator computes the Semantic Answer Similarity (SAS) between a list of predictions and a list of ground truths.
+    SASEvaluator computes the Semantic Answer Similarity (SAS) between a list of predictions and a one of ground truths.
 
-    It's usually used in Retrieval Augmented Generation (RAG) pipelines to evaluate the quality of the generated answers.
-
-    The SAS is computed using a pre-trained model from the Hugging Face model hub. The model can be either a
+    It's usually used in Retrieval Augmented Generation (RAG) pipelines to evaluate the quality of the generated
+    answers. The SAS is computed using a pre-trained model from the Hugging Face model hub. The model can be either a
     Bi-Encoder or a Cross-Encoder. The choice of the model is based on the `model` parameter.
 
     Usage example:
@@ -59,13 +58,14 @@ class SASEvaluator:
         model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
         batch_size: int = 32,
         device: Optional[ComponentDevice] = None,
-        token: Secret = Secret.from_env_var("HF_API_TOKEN", strict=False),
+        token: Secret = Secret.from_env_var(["HF_API_TOKEN", "HF_TOKEN"], strict=False),
     ):
         """
         Creates a new instance of SASEvaluator.
 
         :param model:
-            SentenceTransformers semantic textual similarity model, should be path or string pointing to a downloadable model.
+            SentenceTransformers semantic textual similarity model, should be path or string pointing to a downloadable
+            model.
         :param batch_size:
             Number of prediction-label pairs to encode at once.
         :param device:
@@ -156,6 +156,9 @@ class SASEvaluator:
         """
         if len(ground_truth_answers) != len(predicted_answers):
             raise ValueError("The number of predictions and labels must be the same.")
+
+        if any(answer is None for answer in predicted_answers):
+            raise ValueError("Predicted answers must not contain None values.")
 
         if len(predicted_answers) == 0:
             return {"score": 0.0, "individual_scores": [0.0]}
