@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @component
 class JQToJSON:
     '''
-        :param source:Single file path as string or Path object to JSON source
+        :param source:Json source - Can be a string file path or Path object to JSON source
         :param jq_data_schema: jq query to operate on JSON source
         :param metadata_func: Optional function that takes in the JSON 
         object extracted by the jq_schema and returns
