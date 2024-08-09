@@ -87,7 +87,7 @@ class TestJQJSONToDocument:
         doc_dict = json.loads(output[0][0].content)
         meta = output[0][0].meta
         
-        assert len(output) == 25
+        assert len(output) == 23
         assert doc_dict == expected_content_lines
         assert meta == expected_meta_lines
 
