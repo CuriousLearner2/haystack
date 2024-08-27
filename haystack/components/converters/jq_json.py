@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Iterator, Callable
 
 from haystack import Document, component, logging
-from haystack.components.converters.utils import get_bytestream_from_source, normalize_metadata
+from haystack.components.converters.utils import get_bytestream_from_source
 from haystack.lazy_imports import LazyImport
 
 import json
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 @component
-class JQToJSON:
+class JQ_JSONToDocument:
     '''
         :param source:Json source - Can be a string file path or Path object to JSON source
         :param jq_data_schema: jq query to operate on JSON source
@@ -40,7 +40,7 @@ class JQToJSON:
 
     '''
 
-    def __init__(self: "JQToJSON") -> None:
+    def __init__(self: "JQ_JSONToDocument") -> None:
         """
         Check to see if jq is installed
         """
@@ -52,7 +52,7 @@ class JQToJSON:
         sources: Union [str,Path],
         jq_data_schema: str,
         metadata_func: Optional[Callable[[Dict], Dict]] = None,
-        metadata: Optional[Dict[str, Any]] = {}, 
+        metadata: Optional[Dict[str, Any]] = None, 
         json_lines: bool = False
     ) -> Union[Dict[str, List[Document]], None]: # Output will be list of Docs each of which will contain JSON objects
 
@@ -60,37 +60,37 @@ class JQToJSON:
         self._jq_data_schema = jq_data_schema
         self._metadata_func = metadata_func
         self._metadata: Dict[str, Any] = metadata if metadata is not None else {}
-
-
         self._json_lines = json_lines
-
-
+        
         if self._json_lines:
             line_docs = []
             try:
-                with self._file_path.open(encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            docs = []
-                            try:
-                                for doc in self._single_doc(line):
-                                    docs.append(doc)
-                                line_docs.append(docs)
-                            except Exception as e:
-                                logger.error(f"Error processing line: {line}")
-                                logger.error(f"Exception: {e}")
-                    return {"documents": line_docs}
+                byte_stream = get_bytestream_from_source(self._file_path)
+                content = byte_stream.to_string(encoding="utf-8")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line:
+                        docs = []
+                        try:
+                            for doc in self._single_doc(line):
+                                docs.append(doc)
+                            line_docs.append(docs)
+                        except Exception as e:
+                            logger.error(f"Error processing line: {line}")
+                            logger.error(f"Exception: {e}")
+                            return {"documents": line_docs}
             except FileNotFoundError:
                 logger.error(f"Error: The file {self._file_path} was not found.")
             except Exception as e:
                 logger.error(f"An unexpected error occurred while reading the file {self._file_path}: {e}")
 
-                return {"documents": line_docs}
+            return {"documents": line_docs}
         else:
             docs = []
             try:
-                for doc in self._single_doc(self._file_path.read_text(encoding="utf-8")):
+                byte_stream = get_bytestream_from_source(self._file_path)
+                content = byte_stream.to_string(encoding="utf-8")
+                for doc in self._single_doc(content):
                     docs.append(doc)
             except FileNotFoundError:
                 logger.error(f"Error: The file {self._file_path} was not found.")
