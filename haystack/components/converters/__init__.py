@@ -6,8 +6,7 @@ from haystack.components.converters.azure import AzureOCRDocumentConverter
 from haystack.components.converters.csv import CSVToDocument
 from haystack.components.converters.docx import DOCXMetadata, DOCXToDocument
 from haystack.components.converters.html import HTMLToDocument
-from haystack.components.converters.jq_json import JQ_JSONToDocument
-from haystack.components.converters.json import JSONConverter
+from haystack.components.converters.jq_json import JSONToDocument
 from haystack.components.converters.markdown import MarkdownToDocument
 from haystack.components.converters.openapi_functions import OpenAPIServiceToFunctions
 from haystack.components.converters.output_adapter import OutputAdapter
@@ -30,6 +29,5 @@ __all__ = [
     "DOCXToDocument",
     "DOCXMetadata",
     "PPTXToDocument",
-    "CSVToDocument",
-    "JSONConverter",
+    "JSONToDocument",
 ]

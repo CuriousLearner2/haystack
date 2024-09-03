@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 @component
-class JQ_JSONToDocument:
+class JSONToDocument:
     '''
         :param source:Json source - Can be a string file path or Path object to JSON source
         :param jq_data_schema: jq query to operate on JSON source
@@ -40,13 +40,13 @@ class JQ_JSONToDocument:
 
     '''
 
-    def __init__(self: "JQ_JSONToDocument") -> None:
+    def __init__(self: "JSONToDocument") -> None:
         """
         Check to see if jq is installed
         """
         jq_import.check()
 
-    @component.output_types(documents=Dict[str,List[Document]])
+    @component.output_types(documents=List[Document])
     def run(
         self,
         sources: Union [str,Path],
@@ -54,7 +54,7 @@ class JQ_JSONToDocument:
         metadata_func: Optional[Callable[[Dict], Dict]] = None,
         metadata: Optional[Dict[str, Any]] = None, 
         json_lines: bool = False
-    ) -> Union[Dict[str, List[Document]], None]: # Output will be list of Docs each of which will contain JSON objects
+    ):  # Output will be list of Docs each of which will contain JSON objects
 
         self._file_path = Path(sources).resolve()
         self._jq_data_schema = jq_data_schema

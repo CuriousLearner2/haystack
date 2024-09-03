@@ -8,10 +8,10 @@ import pytest
 import os
 
 
-from haystack.components.converters.jq_json import JQ_JSONToDocument
+from haystack.components.converters.jq_json import JSONToDocument
 
 
-class TestJQJSONToDocument:
+class TestJSONToDocument:
     
   
 
@@ -59,7 +59,7 @@ class TestJQJSONToDocument:
             metadata["share"] = sample.get("share")
             return metadata
 
-        converter = JQ_JSONToDocument()
+        converter = JSONToDocument()
         with caplog.at_level(logging.WARNING):
             output_dict = converter.run(sources = file_path,jq_data_schema=jq_data_schema, metadata_func=metadata_func,
                                    metadata = {'dataset': 'nobel data set'},json_lines=False)
@@ -76,7 +76,7 @@ class TestJQJSONToDocument:
         
         # Test json_lines format
         
-        converter_lines = JQ_JSONToDocument()
+        converter_lines = JSONToDocument()
         
         with caplog.at_level(logging.WARNING):
             output_dict = converter_lines.run(sources = file_path_lines,jq_data_schema=jq_data_schema_lines, metadata_func=metadata_func,
@@ -100,7 +100,7 @@ class TestJQJSONToDocument:
         """
         #set up
         file_path_error = "non_existing_file.json"
-        converter_error = JQ_JSONToDocument()
+        converter_error = JSONToDocument()
 
         with caplog.at_level(logging.WARNING):
             output = converter_error.run(sources = file_path_error,jq_data_schema='', metadata_func=None,
